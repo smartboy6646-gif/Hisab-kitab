@@ -1230,6 +1230,7 @@
             };
 
             // OFFICIAL SCREENSHOT EXPORT LOGIC
+                        // OFFICIAL SCREENSHOT EXPORT LOGIC
             const downloadSettlementImage = async () => {
                 const debts = calculateDebts();
                 if (debts.length === 0) {
@@ -1270,13 +1271,26 @@
                         backgroundColor: state.theme === 'dark' ? '#0f172a' : '#f8fafc',
                     });
 
-                    // Convert and trigger download
-                    const link = document.createElement('a');
-                    link.download = `HisabKitab_Settlement_${new Date().toISOString().split('T')[0]}.png`;
-                    link.href = canvas.toDataURL('image/png');
-                    link.click();
-                    
-                    showToast(state.lang === 'np' ? 'फोटो डाउनलोड भयो! 📸' : 'Photo downloaded successfully! 📸');
+                    // FIX: Using Blob and appending link to document body for flawless mobile/desktop support
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            const url = window.URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.download = `HisabKitab_Settlement_${new Date().toISOString().split('T')[0]}.png`;
+                            link.href = url;
+                            
+                            // ब्राउजरले डाउनलोड गर्न देओस् भनेर यो स्टेप अनिवार्य छ
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            window.URL.revokeObjectURL(url); // मेमोरी क्लिनअप
+                            
+                            showToast(state.lang === 'np' ? 'फोटो डाउनलोड भयो! 📸' : 'Photo downloaded successfully! 📸');
+                        } else {
+                            showToast('Error generating file.', 'error');
+                        }
+                    }, 'image/png');
+
                 } catch (err) {
                     console.error(err);
                     showToast('Error generating photo.', 'error');
