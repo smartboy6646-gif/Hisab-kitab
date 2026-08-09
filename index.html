@@ -78,7 +78,8 @@
         @keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
     </style>
 </head>
-<body class="text-slate-800 dark:text-slate-200 h-screen overflow-hidden flex flex-col md:flex-row">
+<!-- Changed h-screen to h-[100dvh] for better mobile browser support -->
+<body class="text-slate-800 dark:text-slate-200 h-[100dvh] overflow-hidden flex flex-col md:flex-row">
 
     <!-- Loading Overlay -->
     <div id="loader" class="fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-500">
@@ -138,8 +139,8 @@
         </div>
     </aside>
 
-    <!-- Main Content Area -->
-    <main class="flex-1 h-full overflow-y-auto pb-24 md:pb-0 pt-16 md:pt-0 relative">
+    <!-- Main Content Area: Added pb-32 to fix the button overlap issue -->
+    <main class="flex-1 h-full overflow-y-auto pb-32 md:pb-8 pt-16 md:pt-0 relative">
         <div class="max-w-5xl mx-auto p-4 md:p-8">
             
             <!-- VIEW: DASHBOARD -->
@@ -257,7 +258,8 @@
                     </button>
                 </div>
 
-                <div class="flex justify-end gap-3">
+                <!-- Added mb-16 so buttons don't hide behind mobile nav menu -->
+                <div class="flex justify-end gap-3 mt-8 mb-16 md:mb-0">
                     <button onclick="app.navigate('sessions')" class="px-6 py-3 rounded-xl font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" data-i18n="cancel">Cancel</button>
                     <button onclick="app.saveSession()" class="px-6 py-3 rounded-xl font-medium bg-primary-600 hover:bg-primary-700 text-white shadow-lg shadow-primary-500/30 transition-transform active:scale-95 flex items-center gap-2">
                         <span class="material-symbols-rounded">save</span>
@@ -362,7 +364,7 @@
                 sessions: JSON.parse(localStorage.getItem('hk_sessions')) || [],
                 settledDebts: JSON.parse(localStorage.getItem('hk_settled')) || [],
                 currentView: 'dashboard',
-                editingSessionId: null // Tracks if we are editing an existing session
+                editingSessionId: null 
             };
 
             // Dictionary (I18n)
@@ -398,7 +400,7 @@
                     save_session: "Save Session",
                     update_session: "Update Session",
                     shopping_history: "Shopping History",
-                    who_owes_whom: "Optimized calculation of who owes whom.",
+                    who_owes_whom: "One-Person Centralized Settlement.",
                     pending: "Pending",
                     history: "History",
                     analytics_reports: "Analytics & Reports",
@@ -451,7 +453,7 @@
                     save_session: "सत्र सुरक्षित गर्नुहोस्",
                     update_session: "सत्र अपडेट गर्नुहोस्",
                     shopping_history: "किनमेल इतिहास",
-                    who_owes_whom: "कसले कसलाई तिर्नुपर्छ (अनुकूलित)।",
+                    who_owes_whom: "एक व्यक्तिलाई मात्र तिर्ने केन्द्रीय हिसाब।",
                     pending: "बाँकी",
                     history: "इतिहास",
                     analytics_reports: "विश्लेषण र रिपोर्टहरू",
@@ -531,7 +533,6 @@
                 if(state.currentView === 'reports') renderCharts();
             };
 
-            // UPDATED: Completely removes member and their history if chosen
             const removeMember = (name) => {
                 let hasHistory = state.sessions.some(s => 
                     s.stores.some(st => st.paidBy === name || (st.type === 'shared' && st.sharedWith.includes(name)) || st.owner === name)
@@ -544,7 +545,6 @@
                         
                     if (!confirm(msg)) return;
                     
-                    // Completely Wipe Member's History
                     state.sessions.forEach(s => {
                         s.stores = s.stores.filter(st => {
                             if (st.paidBy === name) return false;
@@ -559,7 +559,6 @@
                         });
                     });
                     
-                    // Cleanup empty stores and sessions
                     state.sessions.forEach(s => {
                         s.stores = s.stores.filter(st => st.type !== 'shared' || st.sharedWith.length > 0);
                     });
@@ -579,62 +578,67 @@
                 if(state.currentView === 'reports') renderCharts();
             };
 
+            // NEW CENTRALIZED SETTLEMENT ALGORITHM (एउटै मुख्य मान्छेलाई पैसा दिने सिस्टम)
             const calculateDebts = () => {
                 let balances = {};
                 state.members.forEach(m => balances[m] = 0);
                 
-                state.sessions.forEach(session => {
-                    session.stores.forEach(store => {
-                        if (balances[store.paidBy] === undefined) balances[store.paidBy] = 0;
-                        if (store.type === 'shared') {
-                            store.sharedWith.forEach(member => {
-                                if (balances[member] === undefined) balances[member] = 0;
-                            });
-                        } else if (store.type === 'personal') {
-                            if (balances[store.owner] === undefined) balances[store.owner] = 0;
-                        }
-                    });
-                });
-
+                // Calculate actual debts for everyone
                 state.sessions.forEach(session => {
                     session.stores.forEach(store => {
                         let amount = parseFloat(store.amount);
+                        if (balances[store.paidBy] === undefined) balances[store.paidBy] = 0;
                         balances[store.paidBy] += amount;
 
                         if (store.type === 'shared') {
                             let splitAmount = amount / store.sharedWith.length;
-                            store.sharedWith.forEach(member => balances[member] -= splitAmount);
+                            store.sharedWith.forEach(member => {
+                                if (balances[member] === undefined) balances[member] = 0;
+                                balances[member] -= splitAmount;
+                            });
                         } else if (store.type === 'personal') {
+                            if (balances[store.owner] === undefined) balances[store.owner] = 0;
                             balances[store.owner] -= amount;
                         }
                     });
                 });
 
-                let debtors = [], creditors = [];
+                // Find the "Bank" (The person who is owed the absolute MAXIMUM money)
+                let bank = null;
+                let maxBalance = -1;
                 for (const [person, balance] of Object.entries(balances)) {
-                    if (balance < -0.01) debtors.push({ person, amount: -balance });
-                    else if (balance > 0.01) creditors.push({ person, amount: balance });
+                    if (balance > maxBalance) {
+                        maxBalance = balance;
+                        bank = person;
+                    }
                 }
-
-                debtors.sort((a, b) => b.amount - a.amount);
-                creditors.sort((a, b) => b.amount - a.amount);
 
                 let transactions = [];
-                let i = 0, j = 0;
-
-                while (i < debtors.length && j < creditors.length) {
-                    let d = debtors[i];
-                    let c = creditors[j];
-                    let min = Math.min(d.amount, c.amount);
-
-                    transactions.push({ from: d.person, to: c.person, amount: min });
-                    d.amount -= min;
-                    c.amount -= min;
-
-                    if (d.amount < 0.01) i++;
-                    if (c.amount < 0.01) j++;
+                
+                // Generate transactions centralized through the Bank
+                if (bank && maxBalance > 0.01) {
+                    for (const [person, balance] of Object.entries(balances)) {
+                        if (person === bank) continue;
+                        
+                        if (balance < -0.01) {
+                            // Person owes money, so they pay the FULL amount to the "Bank"
+                            transactions.push({
+                                from: person,
+                                to: bank,
+                                amount: Math.abs(balance)
+                            });
+                        } else if (balance > 0.01) {
+                            // Person is owed money (but less than the Bank), so the Bank pays them
+                            transactions.push({
+                                from: bank,
+                                to: person,
+                                amount: balance
+                            });
+                        }
+                    }
                 }
 
+                // Filter out already settled transactions
                 return transactions.filter(t => !state.settledDebts.includes(`${t.from}-${t.to}-${Math.round(t.amount)}`));
             };
 
@@ -762,7 +766,6 @@
                                 <div class="mt-2 p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
                                     ${storesHTML}
                                 </div>
-                                <!-- Edit & Delete Session Buttons -->
                                 <div class="mt-4 flex gap-3 justify-end border-t border-slate-200 dark:border-slate-700/50 pt-3">
                                     <button onclick="app.editSession('${s.id}')" class="px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors hover:bg-blue-200 dark:hover:bg-blue-800/40">
                                         <span class="material-symbols-rounded text-[18px]">edit</span> ${dict[state.lang].edit}
@@ -898,7 +901,6 @@
             };
 
             let storeCount = 0;
-            // UPDATED: Accepts existing data to prefill form when editing
             const addStoreForm = (storeData = null) => {
                 if (state.members.length === 0) return showToast('Please add members in the Group section first.', 'error');
                 
@@ -961,7 +963,6 @@
                 `;
                 container.insertAdjacentHTML('beforeend', html);
 
-                // Populate data if we are editing an existing store
                 if (storeData) {
                     const el = document.getElementById(storeId);
                     el.querySelector('.store-name').value = storeData.name;
@@ -1019,7 +1020,6 @@
                 }
             };
 
-            // NEW: Resets form and prepares for a fresh session
             const newSession = () => {
                 state.editingSessionId = null;
                 document.getElementById('inpSessionName').value = '';
@@ -1030,7 +1030,6 @@
                 app.navigate('add-session');
             };
 
-            // NEW: Prepare form to Edit an existing session
             const editSession = (id) => {
                 const session = state.sessions.find(s => s.id === id);
                 if (!session) return;
@@ -1050,7 +1049,6 @@
                 app.navigate('add-session');
             };
 
-            // NEW: Completely delete a session
             const deleteSession = (id) => {
                 let msg = state.lang === 'np' ? "के तपाईं पक्का यो हिसाब मेटाउन चाहनुहुन्छ?" : "Are you sure you want to delete this session entirely?";
                 if (!confirm(msg)) return;
@@ -1064,7 +1062,6 @@
                 renderSettlements();
             };
 
-            // UPDATED: Handles both Create New and Update Existing
             const saveSession = () => {
                 const name = document.getElementById('inpSessionName').value.trim();
                 const date = document.getElementById('inpSessionDate').value;
@@ -1112,7 +1109,7 @@
                 if (state.editingSessionId) {
                     const idx = state.sessions.findIndex(s => s.id === state.editingSessionId);
                     if (idx !== -1) state.sessions[idx] = newSessionData;
-                    state.editingSessionId = null; // reset
+                    state.editingSessionId = null;
                     showToast('Session Updated Successfully! ✏️');
                 } else {
                     state.sessions.push(newSessionData);
