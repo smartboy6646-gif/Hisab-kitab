@@ -149,7 +149,7 @@
                         <h2 class="text-2xl font-bold" data-i18n="overview">Overview</h2>
                         <p class="text-sm text-slate-500 dark:text-slate-400" data-i18n="welcome_back">Here is your financial summary.</p>
                     </div>
-                    <button onclick="app.navigate('add-session')" class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 shadow-lg shadow-primary-500/30 transition-transform active:scale-95">
+                    <button onclick="app.newSession()" class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 shadow-lg shadow-primary-500/30 transition-transform active:scale-95">
                         <span class="material-symbols-rounded">add</span>
                         <span class="hidden md:inline" data-i18n="new_session">New Session</span>
                     </button>
@@ -221,11 +221,11 @@
                 </div>
             </section>
 
-            <!-- VIEW: ADD SESSION -->
+            <!-- VIEW: ADD / EDIT SESSION -->
             <section id="view-add-session" class="view-section hidden fade-in">
                 <div class="flex items-center gap-3 mb-6">
                     <button onclick="app.navigate('dashboard')" class="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"><span class="material-symbols-rounded">arrow_back</span></button>
-                    <h2 class="text-2xl font-bold" data-i18n="new_shopping_session">New Shopping Session</h2>
+                    <h2 id="formTitle" class="text-2xl font-bold" data-i18n="new_shopping_session">New Shopping Session</h2>
                 </div>
 
                 <div class="glass-card rounded-2xl p-5 md:p-6 mb-6">
@@ -258,10 +258,10 @@
                 </div>
 
                 <div class="flex justify-end gap-3">
-                    <button onclick="app.navigate('dashboard')" class="px-6 py-3 rounded-xl font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" data-i18n="cancel">Cancel</button>
+                    <button onclick="app.navigate('sessions')" class="px-6 py-3 rounded-xl font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" data-i18n="cancel">Cancel</button>
                     <button onclick="app.saveSession()" class="px-6 py-3 rounded-xl font-medium bg-primary-600 hover:bg-primary-700 text-white shadow-lg shadow-primary-500/30 transition-transform active:scale-95 flex items-center gap-2">
                         <span class="material-symbols-rounded">save</span>
-                        <span data-i18n="save_session">Save Session</span>
+                        <span id="btnSaveText" data-i18n="save_session">Save Session</span>
                     </button>
                 </div>
             </section>
@@ -333,7 +333,7 @@
                 <span class="text-[10px] font-medium" data-i18n="nav_sessions">Sessions</span>
             </button>
             <div class="relative -top-5">
-                <button onclick="app.navigate('add-session')" class="bg-primary-600 text-white p-3 rounded-full shadow-lg shadow-primary-500/40 active:scale-95 transition-transform">
+                <button onclick="app.newSession()" class="bg-primary-600 text-white p-3 rounded-full shadow-lg shadow-primary-500/40 active:scale-95 transition-transform">
                     <span class="material-symbols-rounded text-3xl">add</span>
                 </button>
             </div>
@@ -361,7 +361,8 @@
                 members: JSON.parse(localStorage.getItem('hk_members')) || ['Ronnie', 'Raj', 'Hari', 'Dipesh', 'Ram', "Suman"],
                 sessions: JSON.parse(localStorage.getItem('hk_sessions')) || [],
                 settledDebts: JSON.parse(localStorage.getItem('hk_settled')) || [],
-                currentView: 'dashboard'
+                currentView: 'dashboard',
+                editingSessionId: null // Tracks if we are editing an existing session
             };
 
             // Dictionary (I18n)
@@ -388,12 +389,14 @@
                     add_member: "Add",
                     current_members: "Current Members",
                     new_shopping_session: "New Shopping Session",
+                    edit_session: "Edit Shopping Session",
                     session_name: "Session Name",
                     date: "Date",
                     stores_visited: "Stores Visited",
                     add_store: "Add Store",
                     cancel: "Cancel",
                     save_session: "Save Session",
+                    update_session: "Update Session",
                     shopping_history: "Shopping History",
                     who_owes_whom: "Optimized calculation of who owes whom.",
                     pending: "Pending",
@@ -410,6 +413,8 @@
                     shared_with: "Shared With (Select members)",
                     owner: "Owner",
                     remove: "Remove",
+                    edit: "Edit",
+                    delete: "Delete",
                     pay: "Mark as Paid",
                     settled: "Settled",
                     empty_sessions: "No sessions found. Start shopping!",
@@ -437,12 +442,14 @@
                     add_member: "थप्नुहोस्",
                     current_members: "हालका सदस्यहरू",
                     new_shopping_session: "नयाँ किनमेल सत्र",
+                    edit_session: "किनमेल सत्र सम्पादन गर्नुहोस्",
                     session_name: "सत्रको नाम",
                     date: "मिति",
                     stores_visited: "भ्रमण गरिएका पसलहरू",
                     add_store: "पसल थप्नुहोस्",
                     cancel: "रद्द गर्नुहोस्",
                     save_session: "सत्र सुरक्षित गर्नुहोस्",
+                    update_session: "सत्र अपडेट गर्नुहोस्",
                     shopping_history: "किनमेल इतिहास",
                     who_owes_whom: "कसले कसलाई तिर्नुपर्छ (अनुकूलित)।",
                     pending: "बाँकी",
@@ -459,6 +466,8 @@
                     shared_with: "साझेदारी (सदस्य छान्नुहोस्)",
                     owner: "मालिक",
                     remove: "हटाउनुहोस्",
+                    edit: "सम्पादन",
+                    delete: "मेटाउनुहोस्",
                     pay: "तिरेको चिन्ह लगाउनुहोस्",
                     settled: "फर्स्यौट भयो",
                     empty_sessions: "कुनै सत्र फेला परेन। किनमेल सुरु गर्नुहोस्!",
@@ -466,10 +475,8 @@
                 }
             };
 
-            // Charts instances
             let pieChart, barChart;
 
-            // --- Initialization ---
             const init = () => {
                 setTimeout(() => {
                     document.getElementById('loader').style.opacity = '0';
@@ -479,21 +486,16 @@
                 applyTheme(state.theme);
                 applyLang(state.lang);
                 
-                // Demo Data if empty
-                if (state.sessions.length === 0) {
-                    generateDemoData();
-                }
+                if (state.sessions.length === 0) generateDemoData();
 
                 updateDashboard();
                 renderMembers();
                 renderSessionsList();
                 renderSettlements();
                 
-                // Set default date in form
                 document.getElementById('inpSessionDate').valueAsDate = new Date();
             };
 
-            // --- Group / Members Logic ---
             const renderMembers = () => {
                 const list = document.getElementById('membersList');
                 list.innerHTML = '';
@@ -526,35 +528,61 @@
                 renderMembers();
                 showToast(`Member '${name}' added successfully! ✅`);
                 
-                // Refresh if needed
                 if(state.currentView === 'reports') renderCharts();
             };
 
+            // UPDATED: Completely removes member and their history if chosen
             const removeMember = (name) => {
-                // Check if member is involved in past sessions
                 let hasHistory = state.sessions.some(s => 
                     s.stores.some(st => st.paidBy === name || (st.type === 'shared' && st.sharedWith.includes(name)) || st.owner === name)
                 );
                 
                 if (hasHistory) {
-                    if (!confirm(`Warning: '${name}' has past transactions. Removing them will hide them from future options, but past debts remain valid. Proceed?`)) return;
+                    let msg = state.lang === 'np' 
+                        ? `चेतावनी: '${name}' को पुरानो हिसाबहरू छन्।\nOK थिचेमा उहाँको सबै पुरानो हिसाबहरू पूर्ण रूपमा हट्नेछन्।\nCancel थिचेमा प्रक्रिया रद्द हुनेछ।`
+                        : `Warning: '${name}' has past transactions.\nClick OK to completely remove them AND wipe all their past expenses from your Hisab.\nClick Cancel to abort.`;
+                        
+                    if (!confirm(msg)) return;
+                    
+                    // Completely Wipe Member's History
+                    state.sessions.forEach(s => {
+                        s.stores = s.stores.filter(st => {
+                            if (st.paidBy === name) return false;
+                            if (st.type === 'personal' && st.owner === name) return false;
+                            return true;
+                        });
+                        
+                        s.stores.forEach(st => {
+                            if (st.type === 'shared') {
+                                st.sharedWith = st.sharedWith.filter(m => m !== name);
+                            }
+                        });
+                    });
+                    
+                    // Cleanup empty stores and sessions
+                    state.sessions.forEach(s => {
+                        s.stores = s.stores.filter(st => st.type !== 'shared' || st.sharedWith.length > 0);
+                    });
+                    state.sessions = state.sessions.filter(s => s.stores.length > 0);
+                    localStorage.setItem('hk_sessions', JSON.stringify(state.sessions));
                 }
 
                 state.members = state.members.filter(m => m !== name);
                 localStorage.setItem('hk_members', JSON.stringify(state.members));
-                renderMembers();
-                showToast(`Member '${name}' removed. 🗑️`);
                 
+                renderMembers();
+                updateDashboard();
+                renderSessionsList();
+                renderSettlements();
+                
+                showToast(state.lang === 'np' ? `'${name}' र उहाँको हिसाब पूर्ण रूपमा हटाइयो। 🗑️` : `Member '${name}' and history completely removed. 🗑️`);
                 if(state.currentView === 'reports') renderCharts();
             };
 
-            // --- Core Logic: Debt Calculation ---
             const calculateDebts = () => {
                 let balances = {};
-                // Initialize balances for CURRENT members
                 state.members.forEach(m => balances[m] = 0);
                 
-                // Ensure past members from history are also initialized to avoid NaN errors
                 state.sessions.forEach(session => {
                     session.stores.forEach(store => {
                         if (balances[store.paidBy] === undefined) balances[store.paidBy] = 0;
@@ -568,29 +596,21 @@
                     });
                 });
 
-                // Calculate actual debts
                 state.sessions.forEach(session => {
                     session.stores.forEach(store => {
                         let amount = parseFloat(store.amount);
-                        
-                        // Paid By gets positive balance
                         balances[store.paidBy] += amount;
 
                         if (store.type === 'shared') {
                             let splitAmount = amount / store.sharedWith.length;
-                            store.sharedWith.forEach(member => {
-                                balances[member] -= splitAmount;
-                            });
+                            store.sharedWith.forEach(member => balances[member] -= splitAmount);
                         } else if (store.type === 'personal') {
                             balances[store.owner] -= amount;
                         }
                     });
                 });
 
-                // Algorithm: Min Cash Flow (Greedy)
-                let debtors = [];
-                let creditors = [];
-                
+                let debtors = [], creditors = [];
                 for (const [person, balance] of Object.entries(balances)) {
                     if (balance < -0.01) debtors.push({ person, amount: -balance });
                     else if (balance > 0.01) creditors.push({ person, amount: balance });
@@ -607,12 +627,7 @@
                     let c = creditors[j];
                     let min = Math.min(d.amount, c.amount);
 
-                    transactions.push({
-                        from: d.person,
-                        to: c.person,
-                        amount: min
-                    });
-
+                    transactions.push({ from: d.person, to: c.person, amount: min });
                     d.amount -= min;
                     c.amount -= min;
 
@@ -620,26 +635,17 @@
                     if (c.amount < 0.01) j++;
                 }
 
-                // Filter out settled ones
-                let pendingTrans = transactions.filter(t => {
-                    let id = `${t.from}-${t.to}-${Math.round(t.amount)}`;
-                    return !state.settledDebts.includes(id);
-                });
-
-                return pendingTrans;
+                return transactions.filter(t => !state.settledDebts.includes(`${t.from}-${t.to}-${Math.round(t.amount)}`));
             };
 
             const markAsPaid = (from, to, amount) => {
-                let id = `${from}-${to}-${Math.round(amount)}`;
-                state.settledDebts.push(id);
+                state.settledDebts.push(`${from}-${to}-${Math.round(amount)}`);
                 localStorage.setItem('hk_settled', JSON.stringify(state.settledDebts));
-                
                 showToast(`Payment marked as Settled ✅`);
                 updateDashboard();
                 renderSettlements();
             };
 
-            // --- UI Renders ---
             const updateDashboard = () => {
                 let totalExp = 0, totalShared = 0, totalPersonal = 0;
                 
@@ -657,13 +663,12 @@
                 document.getElementById('statTotalShared').innerText = format(totalShared);
                 document.getElementById('statTotalPersonal').innerText = format(totalPersonal);
 
-                // Recent Sessions
                 const recentList = document.getElementById('recentSessionsList');
                 recentList.innerHTML = '';
                 const recents = [...state.sessions].reverse().slice(0, 3);
                 
                 if(recents.length === 0) {
-                    recentList.innerHTML = `<p class="text-sm text-slate-500 italic" data-i18n="empty_sessions">${dict[state.lang].empty_sessions}</p>`;
+                    recentList.innerHTML = `<p class="text-sm text-slate-500 italic">${dict[state.lang].empty_sessions}</p>`;
                 } else {
                     recents.forEach(s => {
                         let sessionTotal = s.stores.reduce((sum, st) => sum + parseFloat(st.amount), 0);
@@ -684,7 +689,6 @@
                     });
                 }
 
-                // Pending Settlements Mini
                 const dashSettlements = document.getElementById('pendingSettlementsListDashboard');
                 dashSettlements.innerHTML = '';
                 let debts = calculateDebts().slice(0,3);
@@ -717,7 +721,7 @@
                 });
 
                 if(filtered.length === 0) {
-                     list.innerHTML = `<div class="text-center py-10 glass-card rounded-2xl"><span class="material-symbols-rounded text-4xl text-slate-300 mb-2">search_off</span><p class="text-slate-500" data-i18n="empty_sessions">${dict[state.lang].empty_sessions}</p></div>`;
+                     list.innerHTML = `<div class="text-center py-10 glass-card rounded-2xl"><span class="material-symbols-rounded text-4xl text-slate-300 mb-2">search_off</span><p class="text-slate-500">${dict[state.lang].empty_sessions}</p></div>`;
                      return;
                 }
 
@@ -738,7 +742,7 @@
                     `).join('');
 
                     list.innerHTML += `
-                        <div class="glass-card rounded-2xl overflow-hidden">
+                        <div class="glass-card rounded-2xl overflow-hidden mb-4">
                             <div class="p-4 flex justify-between items-center cursor-pointer hover:bg-white/50 dark:hover:bg-slate-800/50" onclick="document.getElementById('acc-${idx}').classList.toggle('hidden')">
                                 <div class="flex items-center gap-4">
                                     <div class="h-12 w-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white shadow-md">
@@ -758,6 +762,15 @@
                                 <div class="mt-2 p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
                                     ${storesHTML}
                                 </div>
+                                <!-- Edit & Delete Session Buttons -->
+                                <div class="mt-4 flex gap-3 justify-end border-t border-slate-200 dark:border-slate-700/50 pt-3">
+                                    <button onclick="app.editSession('${s.id}')" class="px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors hover:bg-blue-200 dark:hover:bg-blue-800/40">
+                                        <span class="material-symbols-rounded text-[18px]">edit</span> ${dict[state.lang].edit}
+                                    </button>
+                                    <button onclick="app.deleteSession('${s.id}')" class="px-4 py-2 bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors hover:bg-rose-200 dark:hover:bg-rose-800/40">
+                                        <span class="material-symbols-rounded text-[18px]">delete</span> ${dict[state.lang].delete}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -770,7 +783,7 @@
                 const debts = calculateDebts();
 
                 if (debts.length === 0) {
-                    container.innerHTML = `<div class="col-span-1 md:col-span-2 text-center py-10 glass-card rounded-2xl"><span class="material-symbols-rounded text-5xl text-emerald-400 mb-3 block">verified</span><h3 class="text-xl font-bold mb-2">All Settled Up!</h3><p class="text-slate-500">No pending transactions between group members.</p></div>`;
+                    container.innerHTML = `<div class="col-span-1 md:col-span-2 text-center py-10 glass-card rounded-2xl"><span class="material-symbols-rounded text-5xl text-emerald-400 mb-3 block">verified</span><h3 class="text-xl font-bold mb-2">All Settled Up!</h3><p class="text-slate-500">${dict[state.lang].empty_settlements}</p></div>`;
                     return;
                 }
 
@@ -815,7 +828,6 @@
                 let personExp = {};
                 let sharedTotal = 0, personalTotal = 0;
                 
-                // Track all members (Current + Past)
                 state.members.forEach(m => personExp[m] = 0);
                 state.sessions.forEach(s => {
                     s.stores.forEach(st => {
@@ -843,9 +855,7 @@
                 Chart.defaults.color = textColor;
                 Chart.defaults.font.family = "'Inter', sans-serif";
 
-                // Filter out zeroes for cleaner pie chart
-                let chartLabels = [];
-                let chartData = [];
+                let chartLabels = [], chartData = [];
                 for(let [person, amount] of Object.entries(personExp)) {
                     if (amount > 0) {
                         chartLabels.push(person);
@@ -853,7 +863,6 @@
                     }
                 }
 
-                // Pie Chart
                 const ctxPie = document.getElementById('pieChart').getContext('2d');
                 pieChart = new Chart(ctxPie, {
                     type: 'doughnut',
@@ -868,7 +877,6 @@
                     options: { responsive: true, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
                 });
 
-                // Bar Chart
                 const ctxBar = document.getElementById('barChart').getContext('2d');
                 barChart = new Chart(ctxBar, {
                     type: 'bar',
@@ -889,15 +897,14 @@
                 });
             };
 
-            // --- Session Creation Logic ---
             let storeCount = 0;
-            const addStoreForm = () => {
+            // UPDATED: Accepts existing data to prefill form when editing
+            const addStoreForm = (storeData = null) => {
                 if (state.members.length === 0) return showToast('Please add members in the Group section first.', 'error');
                 
                 const container = document.getElementById('storesContainer');
                 const storeId = `store_${Date.now()}_${storeCount++}`;
                 
-                // Dynamically build dropdowns based on CURRENT active members
                 const memberOptions = state.members.map(m => `<option value="${m}">${m}</option>`).join('');
                 const memberCheckboxes = state.members.map(m => `
                     <label class="flex items-center gap-2 p-2 border border-slate-200 dark:border-slate-700 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
@@ -938,7 +945,6 @@
                             </div>
                         </div>
 
-                        <!-- Dynamic Section based on Type -->
                         <div id="${storeId}_shared_sec" class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
                             <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Shared With</label>
                             <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -954,6 +960,33 @@
                     </div>
                 `;
                 container.insertAdjacentHTML('beforeend', html);
+
+                // Populate data if we are editing an existing store
+                if (storeData) {
+                    const el = document.getElementById(storeId);
+                    el.querySelector('.store-name').value = storeData.name;
+                    el.querySelector('.store-amount').value = storeData.amount;
+                    
+                    let paidBySel = el.querySelector('.store-paid-by');
+                    if (!Array.from(paidBySel.options).some(o => o.value === storeData.paidBy)) {
+                        paidBySel.insertAdjacentHTML('beforeend', `<option value="${storeData.paidBy}">${storeData.paidBy} (Removed)</option>`);
+                    }
+                    paidBySel.value = storeData.paidBy;
+
+                    app.toggleStoreType(storeId, storeData.type);
+
+                    if (storeData.type === 'shared') {
+                        el.querySelectorAll('.store-shared-with').forEach(cb => {
+                            cb.checked = storeData.sharedWith.includes(cb.value);
+                        });
+                    } else {
+                        let ownerSel = el.querySelector('.store-owner');
+                        if (!Array.from(ownerSel.options).some(o => o.value === storeData.owner)) {
+                            ownerSel.insertAdjacentHTML('beforeend', `<option value="${storeData.owner}">${storeData.owner} (Removed)</option>`);
+                        }
+                        ownerSel.value = storeData.owner;
+                    }
+                }
             };
 
             const toggleStoreType = (storeId, type) => {
@@ -986,6 +1019,52 @@
                 }
             };
 
+            // NEW: Resets form and prepares for a fresh session
+            const newSession = () => {
+                state.editingSessionId = null;
+                document.getElementById('inpSessionName').value = '';
+                document.getElementById('inpSessionDate').valueAsDate = new Date();
+                document.getElementById('storesContainer').innerHTML = '';
+                document.getElementById('formTitle').innerText = dict[state.lang].new_shopping_session;
+                document.getElementById('btnSaveText').innerText = dict[state.lang].save_session;
+                app.navigate('add-session');
+            };
+
+            // NEW: Prepare form to Edit an existing session
+            const editSession = (id) => {
+                const session = state.sessions.find(s => s.id === id);
+                if (!session) return;
+                
+                state.editingSessionId = id;
+                document.getElementById('inpSessionName').value = session.name;
+                document.getElementById('inpSessionDate').value = session.date;
+                document.getElementById('storesContainer').innerHTML = '';
+                
+                document.getElementById('formTitle').innerText = dict[state.lang].edit_session || "Edit Session";
+                document.getElementById('btnSaveText').innerText = dict[state.lang].update_session || "Update Session";
+
+                session.stores.forEach(st => {
+                    app.addStoreForm(st);
+                });
+                
+                app.navigate('add-session');
+            };
+
+            // NEW: Completely delete a session
+            const deleteSession = (id) => {
+                let msg = state.lang === 'np' ? "के तपाईं पक्का यो हिसाब मेटाउन चाहनुहुन्छ?" : "Are you sure you want to delete this session entirely?";
+                if (!confirm(msg)) return;
+                
+                state.sessions = state.sessions.filter(s => s.id !== id);
+                localStorage.setItem('hk_sessions', JSON.stringify(state.sessions));
+                
+                showToast(state.lang === 'np' ? "सत्र मेटाइयो 🗑️" : "Session deleted completely 🗑️");
+                updateDashboard();
+                renderSessionsList();
+                renderSettlements();
+            };
+
+            // UPDATED: Handles both Create New and Update Existing
             const saveSession = () => {
                 const name = document.getElementById('inpSessionName').value.trim();
                 const date = document.getElementById('inpSessionDate').value;
@@ -1023,19 +1102,25 @@
 
                 if(hasError) return showToast('Please fill all store details correctly.', 'error');
 
-                const newSession = {
-                    id: 'sess_' + Date.now(),
+                const newSessionData = {
+                    id: state.editingSessionId ? state.editingSessionId : 'sess_' + Date.now(),
                     name,
                     date,
                     stores
                 };
 
-                state.sessions.push(newSession);
+                if (state.editingSessionId) {
+                    const idx = state.sessions.findIndex(s => s.id === state.editingSessionId);
+                    if (idx !== -1) state.sessions[idx] = newSessionData;
+                    state.editingSessionId = null; // reset
+                    showToast('Session Updated Successfully! ✏️');
+                } else {
+                    state.sessions.push(newSessionData);
+                    showToast('Shopping Session Saved Successfully! 🎉');
+                }
+
                 localStorage.setItem('hk_sessions', JSON.stringify(state.sessions));
                 
-                showToast('Shopping Session Saved Successfully! 🎉');
-                
-                // Reset form
                 document.getElementById('inpSessionName').value = '';
                 document.getElementById('storesContainer').innerHTML = '';
                 
@@ -1045,12 +1130,10 @@
                 navigate('sessions');
             };
 
-            // --- Utilities ---
             const navigate = (viewId) => {
                 document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
                 document.getElementById(`view-${viewId}`).classList.remove('hidden');
                 
-                // Update nav buttons visually
                 document.querySelectorAll('.nav-btn, .mobile-nav-btn').forEach(btn => {
                     btn.classList.remove('bg-primary-500', 'text-white', 'text-primary-600', 'dark:text-primary-400');
                     if(btn.classList.contains('nav-btn')) btn.classList.add('hover:bg-slate-100', 'dark:hover:bg-slate-800');
@@ -1107,6 +1190,7 @@
                     }
                 });
                 if (state.currentView === 'dashboard') updateDashboard();
+                renderSessionsList();
             };
 
             const showToast = (msg, type = 'success') => {
@@ -1158,7 +1242,9 @@
 
             // Public API
             return {
-                init, navigate, toggleTheme, toggleLang, addMember, removeMember, addStoreForm, toggleStoreType, saveSession, filterSessions, markAsPaid, showToast
+                init, navigate, toggleTheme, toggleLang, addMember, removeMember, 
+                addStoreForm, toggleStoreType, saveSession, filterSessions, markAsPaid, showToast,
+                newSession, editSession, deleteSession
             };
         })();
 
