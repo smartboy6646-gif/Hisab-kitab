@@ -330,18 +330,6 @@
                         <!-- Filled by JS -->
                     </div>
 
-                    <!-- Top Summary Grid -->
-                    <div class="grid grid-cols-2 gap-4 mb-4">
-                        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex flex-col justify-center text-center">
-                            <span class="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-1">Total Pending</span>
-                            <span class="text-xl md:text-2xl font-black text-slate-800 dark:text-white" id="summaryTotal">₩0</span>
-                        </div>
-                        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex flex-col justify-center text-center">
-                            <span class="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-1">Transactions</span>
-                            <span class="text-xl md:text-2xl font-black text-slate-800 dark:text-white" id="summaryCount">0</span>
-                        </div>
-                    </div>
-
                     <!-- Controls (Hidden on Export) -->
                     <div class="flex gap-2 mb-4 hide-on-export">
                         <div class="relative flex-1">
@@ -354,8 +342,8 @@
                         </select>
                     </div>
 
-                    <!-- Compact Transaction Rows -->
-                    <div id="settlementsContainer" class="flex flex-col gap-2">
+                    <!-- Compact Transaction Rows (Bigger and cleaner based on feedback) -->
+                    <div id="settlementsContainer" class="flex flex-col gap-3">
                         <!-- Populated via JS -->
                     </div>
 
@@ -427,7 +415,7 @@
                 settledDebts: JSON.parse(localStorage.getItem('hk_settled')) || [],
                 currentView: 'dashboard',
                 editingSessionId: null,
-                selectedSessionsForSettlement: [] // Array of session IDs selected by checkboxes
+                selectedSessionsForSettlement: []
             };
 
             // Dictionary (I18n)
@@ -616,7 +604,6 @@
                 showToast(state.lang === 'np' ? `'${name}' हटाइयो। 🗑️` : `Member '${name}' removed. 🗑️`);
             };
 
-            // Calculate ALL debts based on selected sessions and map their settled status
             const calculateDebts = (sessionIds = state.selectedSessionsForSettlement) => {
                 if (sessionIds.length === 0) return [];
 
@@ -666,7 +653,6 @@
                     }
                 }
 
-                // Instead of filtering them out completely, return mapped objects indicating if they are settled
                 return transactions.map(t => {
                     let isSettled = state.settledDebts.includes(`${t.from}-${t.to}-${Math.round(t.amount)}`);
                     return { ...t, isSettled };
@@ -742,7 +728,6 @@
                     });
                 }
 
-                // Dashboard Settlements (Only show pending from selected sessions)
                 const dashSettlements = document.getElementById('pendingSettlementsListDashboard');
                 dashSettlements.innerHTML = '';
                 let pendingDebts = calculateDebts(state.selectedSessionsForSettlement).filter(d => !d.isSettled);
@@ -871,44 +856,31 @@
                 updateDashboard();
             };
 
-            // NEW PREMIUM RENDER LOGIC FOR COMPACT ROW LAYOUT
+            // NEW PREMIUM RENDER LOGIC (Bigger & spacious cards, no cutting off)
             const renderSettlements = () => {
                 const container = document.getElementById('settlementsContainer');
-                const summaryTotal = document.getElementById('summaryTotal');
-                const summaryCount = document.getElementById('summaryCount');
                 const searchInput = document.getElementById('settlementSearch');
                 const sortSelect = document.getElementById('settlementSort');
 
                 container.innerHTML = '';
                 
                 if (state.selectedSessionsForSettlement.length === 0) {
-                    if(summaryTotal) summaryTotal.innerText = '₩0';
-                    if(summaryCount) summaryCount.innerText = '0';
                     container.innerHTML = `<div class="text-center py-10 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm"><span class="material-symbols-rounded text-4xl text-slate-300 mb-2 block">checklist</span><h3 class="text-xl font-bold mb-2 text-slate-600 dark:text-slate-300">No Sessions Selected</h3><p class="text-slate-500">${dict[state.lang].empty_settlements}</p></div>`;
                     return;
                 }
 
                 let allDebts = calculateDebts(state.selectedSessionsForSettlement);
 
-                // Update Summary based on Pending only
-                let pendingDebts = allDebts.filter(d => !d.isSettled);
-                let totalAmount = pendingDebts.reduce((sum, d) => sum + d.amount, 0);
-                
-                if(summaryTotal) summaryTotal.innerText = `₩${Math.round(totalAmount).toLocaleString()}`;
-                if(summaryCount) summaryCount.innerText = pendingDebts.length;
-
                 if (allDebts.length === 0) {
                     container.innerHTML = `<div class="text-center py-10 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm"><span class="material-symbols-rounded text-4xl text-emerald-400 mb-2 block">verified</span><h3 class="text-xl font-bold mb-2">All Settled Up!</h3><p class="text-slate-500">No pending dues for selected sessions.</p></div>`;
                     return;
                 }
 
-                // Apply UI Search Filter
                 let query = searchInput ? searchInput.value.toLowerCase().trim() : '';
                 if (query) {
                     allDebts = allDebts.filter(d => d.from.toLowerCase().includes(query) || d.to.toLowerCase().includes(query));
                 }
 
-                // Apply UI Sorting
                 let sort = sortSelect ? sortSelect.value : 'amount-desc';
                 if (sort === 'amount-desc') allDebts.sort((a,b) => b.amount - a.amount);
                 if (sort === 'amount-asc') allDebts.sort((a,b) => a.amount - b.amount);
@@ -926,37 +898,39 @@
                         : `<span class="bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Pending</span>`;
                         
                     let actionBtn = isSettled
-                        ? `<button onclick="app.markAsUnpaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors">Undo</button>`
-                        : `<button onclick="app.markAsPaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[11px] font-bold text-white bg-slate-800 dark:bg-white dark:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-700 dark:hover:bg-slate-200 transition-colors shadow-sm">Mark Paid</button>`;
+                        ? `<button onclick="app.markAsUnpaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[12px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white bg-slate-100 dark:bg-slate-700 px-4 py-2 rounded-xl transition-colors">Undo</button>`
+                        : `<button onclick="app.markAsPaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[12px] font-bold text-white bg-slate-800 dark:bg-white dark:text-slate-900 px-4 py-2 rounded-xl hover:bg-slate-700 dark:hover:bg-slate-200 transition-colors shadow-sm">Mark Paid</button>`;
 
                     container.innerHTML += `
-                        <div class="flex items-center justify-between p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm mb-1 ${opacity}">
-                            <div class="flex items-center gap-3 md:gap-4 overflow-hidden">
-                                <!-- Interlocking Avatars -->
+                        <div class="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm mb-3 ${opacity}">
+                            <!-- Removed overflow-hidden and min-w-0 to let text expand fully -->
+                            <div class="flex items-center gap-4">
+                                <!-- Interlocking Avatars (Larger) -->
                                 <div class="flex -space-x-2 shrink-0">
-                                    <div class="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xs font-bold ring-2 ring-white dark:ring-slate-800 z-10">${d.from.charAt(0)}</div>
-                                    <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold ring-2 ring-white dark:ring-slate-800 z-0">${d.to.charAt(0)}</div>
+                                    <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-800 z-10">${d.from.charAt(0)}</div>
+                                    <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-800 z-0">${d.to.charAt(0)}</div>
                                 </div>
                                 
                                 <!-- Center Details -->
-                                <div class="flex flex-col min-w-0">
-                                    <div class="text-sm font-bold flex items-center gap-1">
-                                        <span class="text-rose-600 truncate max-w-[70px] sm:max-w-[120px]">${d.from}</span>
-                                        <span class="material-symbols-rounded text-[14px] text-slate-300 dark:text-slate-600 shrink-0">arrow_forward</span>
-                                        <span class="text-emerald-600 truncate max-w-[70px] sm:max-w-[120px]">${d.to}</span>
+                                <div class="flex flex-col">
+                                    <!-- Bigger text, break-words to avoid cutoff -->
+                                    <div class="text-base md:text-lg font-bold flex flex-wrap items-center gap-1.5 leading-tight">
+                                        <span class="text-rose-600 break-words">${d.from}</span>
+                                        <span class="material-symbols-rounded text-[18px] text-slate-300 dark:text-slate-600">arrow_forward</span>
+                                        <span class="text-emerald-600 break-words">${d.to}</span>
                                     </div>
-                                    <div class="flex items-center gap-2 mt-1">
+                                    <div class="flex items-center gap-2 mt-1.5">
                                         ${badge}
                                         <button onclick="app.copyPaymentDetails('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-slate-400 hover:text-primary-500 transition-colors flex items-center" title="Copy Details">
-                                            <span class="material-symbols-rounded text-[14px]">content_copy</span>
+                                            <span class="material-symbols-rounded text-[16px]">content_copy</span>
                                         </button>
                                     </div>
                                 </div>
                             </div>
                             
-                            <!-- Right Amount & Action -->
-                            <div class="flex flex-col items-end gap-1.5 shrink-0 ml-2">
-                                <span class="font-black text-slate-800 dark:text-white text-base">₩${Math.round(d.amount).toLocaleString()}</span>
+                            <!-- Right Amount & Action (Larger) -->
+                            <div class="flex flex-col items-end gap-2 shrink-0 ml-3">
+                                <span class="font-black text-slate-800 dark:text-white text-xl">₩${Math.round(d.amount).toLocaleString()}</span>
                                 ${actionBtn}
                             </div>
                         </div>
@@ -1399,7 +1373,6 @@
                 });
             };
 
-            // EXPORT IMAGE (Hides UI controls, maintains compact size)
             const downloadSettlementImage = async () => {
                 if (state.selectedSessionsForSettlement.length === 0) {
                     return showToast(state.lang === 'np' ? 'कृपया फर्स्यौट गर्न सेसन छान्नुहोस्!' : 'Please select sessions first!', 'error');
@@ -1453,7 +1426,8 @@
                 target.classList.remove('p-0', 'bg-transparent');
                 target.style.background = state.theme === 'dark' ? '#0f172a' : '#f8fafc'; 
                 
-                target.style.width = '420px';
+                // Increased width so names have plenty of room and don't squish/cut off
+                target.style.width = '480px';
                 target.style.maxWidth = '100%';
                 target.style.margin = '0 auto';
 
