@@ -308,7 +308,7 @@
                         <button onclick="app.selectAllSessionsToSettle()" class="text-primary-500 text-sm font-bold hover:underline">Select All</button>
                     </div>
                     <div id="settlementSessionCheckboxes" class="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                        <!-- Populated via JS (Default Unchecked) -->
+                        <!-- Populated via JS -->
                     </div>
                 </div>
 
@@ -342,8 +342,8 @@
                         </select>
                     </div>
 
-                    <!-- Compact Transaction Rows (Bigger and cleaner based on feedback) -->
-                    <div id="settlementsContainer" class="flex flex-col gap-3">
+                    <!-- Compact Transaction Rows (Pending + Paid History) -->
+                    <div id="settlementsContainer">
                         <!-- Populated via JS -->
                     </div>
 
@@ -412,7 +412,7 @@
                 lang: localStorage.getItem('lang') || 'en',
                 members: JSON.parse(localStorage.getItem('hk_members')) || ['Ronnie', 'Raj', 'Hari', 'Dipesh', 'Ram', "Suman"],
                 sessions: JSON.parse(localStorage.getItem('hk_sessions')) || [],
-                settledDebts: JSON.parse(localStorage.getItem('hk_settled')) || [],
+                payments: JSON.parse(localStorage.getItem('hk_payments')) || [], 
                 currentView: 'dashboard',
                 editingSessionId: null,
                 selectedSessionsForSettlement: []
@@ -515,6 +515,11 @@
                 
                 if (state.sessions.length === 0) generateDemoData();
 
+                // AUTO-SELECT NEWEST SESSION ON LOAD
+                if (state.sessions.length > 0 && state.selectedSessionsForSettlement.length === 0) {
+                    state.selectedSessionsForSettlement = [state.sessions[state.sessions.length - 1].id];
+                }
+
                 updateDashboard();
                 renderMembers();
                 renderSessionsList();
@@ -605,7 +610,7 @@
             };
 
             const calculateDebts = (sessionIds = state.selectedSessionsForSettlement) => {
-                if (sessionIds.length === 0) return [];
+                if (sessionIds.length === 0) return { pending: [], settled: [] };
 
                 let balances = {};
                 state.members.forEach(m => balances[m] = 0);
@@ -631,6 +636,13 @@
                     });
                 });
 
+                let applicablePayments = state.payments.filter(p => p.sessionIds.every(id => sessionIds.includes(id)));
+                
+                applicablePayments.forEach(p => {
+                    if (balances[p.from] !== undefined) balances[p.from] += parseFloat(p.amount); 
+                    if (balances[p.to] !== undefined) balances[p.to] -= parseFloat(p.amount);     
+                });
+
                 let bank = null;
                 let maxBalance = -1;
                 for (const [person, balance] of Object.entries(balances)) {
@@ -653,25 +665,28 @@
                     }
                 }
 
-                return transactions.map(t => {
-                    let isSettled = state.settledDebts.includes(`${t.from}-${t.to}-${Math.round(t.amount)}`);
-                    return { ...t, isSettled };
-                });
+                return { pending: transactions, settled: applicablePayments.reverse() };
             };
 
             const markAsPaid = (from, to, amount) => {
-                state.settledDebts.push(`${from}-${to}-${Math.round(amount)}`);
-                localStorage.setItem('hk_settled', JSON.stringify(state.settledDebts));
+                state.payments.push({
+                    id: 'pay_' + Date.now().toString(),
+                    from,
+                    to,
+                    amount,
+                    sessionIds: [...state.selectedSessionsForSettlement],
+                    date: new Date().toISOString()
+                });
+                localStorage.setItem('hk_payments', JSON.stringify(state.payments));
                 showToast(`Marked as Paid ✅`);
                 updateDashboard();
                 renderSettlements();
             };
 
-            const markAsUnpaid = (from, to, amount) => {
-                const id = `${from}-${to}-${Math.round(amount)}`;
-                state.settledDebts = state.settledDebts.filter(d => d !== id);
-                localStorage.setItem('hk_settled', JSON.stringify(state.settledDebts));
-                showToast(`Marked as Pending 🔄`);
+            const undoPayment = (id) => {
+                state.payments = state.payments.filter(p => p.id !== id);
+                localStorage.setItem('hk_payments', JSON.stringify(state.payments));
+                showToast(`Payment undone 🔄`);
                 updateDashboard();
                 renderSettlements();
             };
@@ -730,8 +745,8 @@
 
                 const dashSettlements = document.getElementById('pendingSettlementsListDashboard');
                 dashSettlements.innerHTML = '';
-                let pendingDebts = calculateDebts(state.selectedSessionsForSettlement).filter(d => !d.isSettled);
-                let debtsToShow = pendingDebts.slice(0, 3);
+                let { pending } = calculateDebts(state.selectedSessionsForSettlement);
+                let debtsToShow = pending.slice(0, 3);
                 
                 if(state.selectedSessionsForSettlement.length === 0 || debtsToShow.length === 0) {
                     dashSettlements.innerHTML = `<p class="text-sm text-emerald-500 font-medium flex items-center gap-1"><span class="material-symbols-rounded text-base">check_circle</span> ${dict[state.lang].empty_settlements}</p>`;
@@ -856,7 +871,6 @@
                 updateDashboard();
             };
 
-            // NEW PREMIUM RENDER LOGIC (Bigger & spacious cards, no cutting off)
             const renderSettlements = () => {
                 const container = document.getElementById('settlementsContainer');
                 const searchInput = document.getElementById('settlementSearch');
@@ -869,81 +883,105 @@
                     return;
                 }
 
-                let allDebts = calculateDebts(state.selectedSessionsForSettlement);
+                let { pending, settled } = calculateDebts(state.selectedSessionsForSettlement);
 
-                if (allDebts.length === 0) {
+                if (pending.length === 0 && settled.length === 0) {
                     container.innerHTML = `<div class="text-center py-10 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm"><span class="material-symbols-rounded text-4xl text-emerald-400 mb-2 block">verified</span><h3 class="text-xl font-bold mb-2">All Settled Up!</h3><p class="text-slate-500">No pending dues for selected sessions.</p></div>`;
                     return;
                 }
 
                 let query = searchInput ? searchInput.value.toLowerCase().trim() : '';
                 if (query) {
-                    allDebts = allDebts.filter(d => d.from.toLowerCase().includes(query) || d.to.toLowerCase().includes(query));
+                    pending = pending.filter(d => d.from.toLowerCase().includes(query) || d.to.toLowerCase().includes(query));
                 }
 
                 let sort = sortSelect ? sortSelect.value : 'amount-desc';
-                if (sort === 'amount-desc') allDebts.sort((a,b) => b.amount - a.amount);
-                if (sort === 'amount-asc') allDebts.sort((a,b) => a.amount - b.amount);
+                if (sort === 'amount-desc') pending.sort((a,b) => b.amount - a.amount);
+                if (sort === 'amount-asc') pending.sort((a,b) => a.amount - b.amount);
 
-                if (allDebts.length === 0) {
-                    container.innerHTML = `<p class="text-sm text-slate-500 text-center py-6 font-medium">No matching transactions found.</p>`;
-                    return;
+                let pendingHtml = '';
+                if (pending.length > 0) {
+                    pendingHtml += `<div class="flex flex-col gap-3">`;
+                    pending.forEach(d => {
+                        pendingHtml += `
+                            <div class="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                                <div class="flex items-center gap-4">
+                                    <div class="flex -space-x-2 shrink-0">
+                                        <div class="w-11 h-11 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-800 z-10">${d.from.charAt(0)}</div>
+                                        <div class="w-11 h-11 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-800 z-0">${d.to.charAt(0)}</div>
+                                    </div>
+                                    <div class="flex flex-col min-w-0">
+                                        <div class="text-base md:text-lg font-bold flex flex-wrap items-center gap-1.5 leading-tight">
+                                            <span class="text-rose-600 break-words">${d.from}</span>
+                                            <span class="material-symbols-rounded text-[18px] text-slate-300 dark:text-slate-600 shrink-0">arrow_forward</span>
+                                            <span class="text-emerald-600 break-words">${d.to}</span>
+                                        </div>
+                                        <div>
+                                            <span class="bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider mt-1.5 inline-block">Pending</span>
+                                            <button onclick="app.copyPaymentDetails('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-slate-400 hover:text-primary-500 transition-colors inline-flex items-center ml-2 relative top-1" title="Copy Details">
+                                                <span class="material-symbols-rounded text-[16px]">content_copy</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col items-end gap-2 shrink-0 ml-3">
+                                    <span class="font-black text-slate-800 dark:text-white text-xl">₩${Math.round(d.amount).toLocaleString()}</span>
+                                    <button onclick="app.markAsPaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[12px] font-bold text-white bg-slate-800 dark:bg-white dark:text-slate-900 px-4 py-2 rounded-xl hover:bg-slate-700 dark:hover:bg-slate-200 transition-colors shadow-sm">Mark Paid</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    pendingHtml += `</div>`;
+                } else if (!query) {
+                    pendingHtml += `<div class="text-center py-6 bg-emerald-50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-900/30"><span class="material-symbols-rounded text-emerald-500 text-3xl mb-1 block">done_all</span><h3 class="font-bold text-emerald-700 dark:text-emerald-400">Nothing Pending</h3><p class="text-emerald-600 dark:text-emerald-500 text-sm">All selected sessions are fully paid up.</p></div>`;
                 }
 
-                allDebts.forEach(d => {
-                    let isSettled = d.isSettled;
-                    let opacity = isSettled ? 'opacity-50 hover:opacity-100 transition-opacity' : '';
-                    let badge = isSettled 
-                        ? `<span class="bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Paid</span>` 
-                        : `<span class="bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Pending</span>`;
-                        
-                    let actionBtn = isSettled
-                        ? `<button onclick="app.markAsUnpaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[12px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white bg-slate-100 dark:bg-slate-700 px-4 py-2 rounded-xl transition-colors">Undo</button>`
-                        : `<button onclick="app.markAsPaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[12px] font-bold text-white bg-slate-800 dark:bg-white dark:text-slate-900 px-4 py-2 rounded-xl hover:bg-slate-700 dark:hover:bg-slate-200 transition-colors shadow-sm">Mark Paid</button>`;
+                container.innerHTML = pendingHtml;
 
-                    container.innerHTML += `
-                        <div class="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm mb-3 ${opacity}">
-                            <!-- Removed overflow-hidden and min-w-0 to let text expand fully -->
-                            <div class="flex items-center gap-4">
-                                <!-- Interlocking Avatars (Larger) -->
-                                <div class="flex -space-x-2 shrink-0">
-                                    <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-800 z-10">${d.from.charAt(0)}</div>
-                                    <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-bold ring-2 ring-white dark:ring-slate-800 z-0">${d.to.charAt(0)}</div>
-                                </div>
-                                
-                                <!-- Center Details -->
-                                <div class="flex flex-col">
-                                    <!-- Bigger text, break-words to avoid cutoff -->
-                                    <div class="text-base md:text-lg font-bold flex flex-wrap items-center gap-1.5 leading-tight">
-                                        <span class="text-rose-600 break-words">${d.from}</span>
-                                        <span class="material-symbols-rounded text-[18px] text-slate-300 dark:text-slate-600">arrow_forward</span>
-                                        <span class="text-emerald-600 break-words">${d.to}</span>
-                                    </div>
-                                    <div class="flex items-center gap-2 mt-1.5">
-                                        ${badge}
-                                        <button onclick="app.copyPaymentDetails('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-slate-400 hover:text-primary-500 transition-colors flex items-center" title="Copy Details">
-                                            <span class="material-symbols-rounded text-[16px]">content_copy</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Right Amount & Action (Larger) -->
-                            <div class="flex flex-col items-end gap-2 shrink-0 ml-3">
-                                <span class="font-black text-slate-800 dark:text-white text-xl">₩${Math.round(d.amount).toLocaleString()}</span>
-                                ${actionBtn}
-                            </div>
-                        </div>
+                // Added "hide-on-export" so Paid History doesn't show in photo
+                if (settled.length > 0) {
+                    let historyHtml = `
+                        <div class="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 hide-on-export">
+                            <h3 class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                <span class="material-symbols-rounded text-[18px]">history</span> Paid History
+                            </h3>
+                            <div class="flex flex-col gap-3">
                     `;
-                });
+                    
+                    settled.forEach(p => {
+                        let dateStr = new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        historyHtml += `
+                            <div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm opacity-75 hover:opacity-100 transition-opacity">
+                                <div class="flex items-center gap-4">
+                                    <div class="flex flex-col">
+                                        <div class="text-base font-bold flex flex-wrap items-center gap-1.5 leading-tight">
+                                            <span class="text-slate-600 dark:text-slate-300 break-words">${p.from}</span>
+                                            <span class="material-symbols-rounded text-[16px] text-slate-400 shrink-0">arrow_forward</span>
+                                            <span class="text-slate-600 dark:text-slate-300 break-words">${p.to}</span>
+                                        </div>
+                                        <div class="text-xs text-slate-400 mt-1">${dateStr} • <span class="bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400 text-[9px] px-1 rounded uppercase font-bold">Settled</span></div>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col items-end gap-2 shrink-0 ml-3">
+                                    <span class="font-black text-slate-500 dark:text-slate-400 text-lg line-through">₩${Math.round(p.amount).toLocaleString()}</span>
+                                    <button onclick="app.undoPayment('${p.id}')" class="hide-on-export text-[12px] font-bold text-rose-500 hover:text-white bg-rose-50 hover:bg-rose-500 dark:bg-rose-900/30 dark:hover:bg-rose-600 px-3 py-1.5 rounded-lg transition-colors">Undo</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    historyHtml += `</div></div>`;
+                    container.insertAdjacentHTML('beforeend', historyHtml);
+                }
             };
 
             const addAmountField = (btn) => {
                 const container = btn.closest('.amount-container');
                 const html = `
                     <div class="flex items-center gap-2 amount-row fade-in">
-                        <input type="number" class="store-amount w-full bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none" required placeholder="0">
-                        <button type="button" class="p-2 bg-rose-100 text-rose-600 rounded-lg hover:bg-rose-200 transition-colors" onclick="this.parentElement.remove()">
+                        <input type="text" class="store-item-name w-1/2 bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none text-sm" placeholder="Item name (Optional)">
+                        <input type="number" class="store-amount w-1/2 bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none font-bold" required placeholder="0">
+                        <button type="button" class="p-2 bg-rose-100 text-rose-600 rounded-lg hover:bg-rose-200 transition-colors shrink-0 tooltip" title="Remove" onclick="this.parentElement.remove()">
                             <span class="material-symbols-rounded text-sm">delete</span>
                         </button>
                     </div>
@@ -967,28 +1005,28 @@
                 `).join('');
 
                 const html = `
-                    <div id="${storeId}" class="p-4 border border-slate-200 dark:border-slate-700 rounded-xl bg-white/50 dark:bg-slate-800/50 relative fade-in">
-                        <button onclick="document.getElementById('${storeId}').remove()" class="absolute top-4 right-4 text-slate-400 hover:text-rose-500"><span class="material-symbols-rounded">close</span></button>
+                    <div id="${storeId}" class="p-4 md:p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white/50 dark:bg-slate-800/50 relative fade-in">
+                        <button onclick="document.getElementById('${storeId}').remove()" class="absolute top-4 right-4 text-slate-400 hover:text-rose-500 bg-white dark:bg-slate-800 rounded-full p-1 shadow-sm"><span class="material-symbols-rounded">close</span></button>
                         
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div class="store-name-wrapper transition-opacity duration-300">
-                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Store Name / Item</label>
-                                <input type="text" class="store-name w-full bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none" placeholder="e.g. Daiso">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Amount (₩)</label>
-                                <div class="amount-container space-y-2">
-                                    <div class="flex items-center gap-2 amount-row">
-                                        <input type="number" class="store-amount w-full bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none" required placeholder="0">
-                                        <button type="button" class="p-2 bg-primary-100 text-primary-600 rounded-lg hover:bg-primary-200 transition-colors tooltip" title="Add another amount for this item" onclick="app.addAmountField(this)">
-                                            <span class="material-symbols-rounded text-sm">add</span>
-                                        </button>
-                                    </div>
+                        <div class="mb-4 store-name-wrapper pr-10 transition-opacity duration-300">
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Store Name / Category</label>
+                            <input type="text" class="store-name w-full bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none" placeholder="e.g. Daiso, Supermarket (Optional)">
+                        </div>
+
+                        <div class="mb-5">
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Items & Amounts (₩)</label>
+                            <div class="amount-container space-y-2">
+                                <div class="flex items-center gap-2 amount-row">
+                                    <input type="text" class="store-item-name w-1/2 bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none text-sm" placeholder="Item name (Optional)">
+                                    <input type="number" class="store-amount w-1/2 bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none font-bold" required placeholder="0">
+                                    <button type="button" class="p-2 bg-primary-100 text-primary-600 rounded-lg hover:bg-primary-200 transition-colors tooltip shrink-0" title="Add another item" onclick="app.addAmountField(this)">
+                                        <span class="material-symbols-rounded text-sm">add</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Paid By</label>
                                 <select class="store-paid-by w-full bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-primary-500 rounded-lg px-3 py-2 outline-none">
@@ -1024,10 +1062,16 @@
                 if (storeData) {
                     const el = document.getElementById(storeId);
                     
-                    if (storeData.type === 'shared' || (storeData.type === 'personal' && !storeData.name.includes('(Personal)'))) {
-                        el.querySelector('.store-name').value = storeData.name;
+                    let rawName = storeData.name;
+                    if (storeData.type === 'personal') {
+                        if (rawName.includes('(Personal -')) {
+                            rawName = rawName.split('(Personal -')[0].trim();
+                        } else if (rawName.includes('(Personal)')) {
+                            rawName = rawName.split('(Personal)')[0].trim();
+                        }
                     }
                     
+                    el.querySelector('.store-name').value = rawName;
                     el.querySelector('.store-amount').value = storeData.amount;
                     
                     let paidBySel = el.querySelector('.store-paid-by');
@@ -1059,7 +1103,6 @@
                 const btnPersonal = el.querySelector('.type-btn-personal');
                 const secShared = document.getElementById(`${storeId}_shared_sec`);
                 const secPersonal = document.getElementById(`${storeId}_personal_sec`);
-                const nameWrapper = el.querySelector('.store-name-wrapper');
 
                 inputType.value = type;
                 
@@ -1073,7 +1116,6 @@
                     btnPersonal.classList.add(...inactiveClasses);
                     secShared.classList.remove('hidden');
                     secPersonal.classList.add('hidden');
-                    nameWrapper.classList.remove('hidden');
                 } else {
                     btnPersonal.classList.remove(...inactiveClasses);
                     btnPersonal.classList.add(...activeClasses);
@@ -1081,7 +1123,6 @@
                     btnShared.classList.add(...inactiveClasses);
                     secPersonal.classList.remove('hidden');
                     secShared.classList.add('hidden');
-                    nameWrapper.classList.add('hidden');
                 }
             };
 
@@ -1121,6 +1162,10 @@
                 state.sessions = state.sessions.filter(s => s.id !== id);
                 state.selectedSessionsForSettlement = state.selectedSessionsForSettlement.filter(sid => sid !== id);
                 
+                if (state.selectedSessionsForSettlement.length === 0 && state.sessions.length > 0) {
+                    state.selectedSessionsForSettlement = [state.sessions[state.sessions.length - 1].id];
+                }
+
                 localStorage.setItem('hk_sessions', JSON.stringify(state.sessions));
                 
                 showToast(state.lang === 'np' ? "सत्र मेटाइयो 🗑️" : "Session deleted completely 🗑️");
@@ -1143,33 +1188,52 @@
 
                 storeElements.forEach(el => {
                     let sType = el.querySelector('.store-type').value;
-                    let sName = el.querySelector('.store-name').value.trim();
+                    let topName = el.querySelector('.store-name').value.trim();
                     let ownerName = el.querySelector('.store-owner').value;
                     
-                    if(sType === 'personal') {
-                        sName = `${ownerName} (Personal)`;
-                    }
+                    let totalAmount = 0;
+                    let subItems = [];
                     
-                    let totalAmount = Array.from(el.querySelectorAll('.store-amount'))
-                        .reduce((sum, inp) => sum + (parseFloat(inp.value) || 0), 0);
+                    Array.from(el.querySelectorAll('.amount-row')).forEach(row => {
+                        let amt = parseFloat(row.querySelector('.store-amount').value) || 0;
+                        let iName = row.querySelector('.store-item-name').value.trim();
                         
-                    if(!sName || totalAmount <= 0) hasError = true;
+                        if (amt > 0) {
+                            totalAmount += amt;
+                            if (iName) subItems.push(iName);
+                        }
+                    });
+
+                    let finalName = topName;
+                    if (subItems.length > 0) {
+                        if (finalName) finalName += ` (${subItems.join(', ')})`;
+                        else finalName = subItems.join(', ');
+                    }
+
+                    if (sType === 'personal') {
+                        let cleanName = finalName.replace(/\(Personal.*\)/gi, '').trim();
+                        if (cleanName) finalName = `${cleanName} (Personal - ${ownerName})`;
+                        else finalName = `${ownerName} (Personal)`;
+                    } else {
+                        if (!finalName) finalName = 'Untitled Store';
+                    }
+
+                    if(totalAmount <= 0) hasError = true;
                     
                     let storeObj = {
                         id: 'st_' + Math.random().toString(36).substr(2, 9),
-                        name: sName,
+                        name: finalName,
                         amount: totalAmount,
                         paidBy: el.querySelector('.store-paid-by').value,
-                        type: sType
+                        type: sType,
+                        owner: ownerName // Ensure owner is saved
                     };
 
                     if (sType === 'shared') {
                         let checked = Array.from(el.querySelectorAll('.store-shared-with:checked')).map(cb => cb.value);
                         if(checked.length === 0) hasError = true;
                         storeObj.sharedWith = checked;
-                    } else {
-                        storeObj.owner = ownerName;
-                    }
+                    } 
                     stores.push(storeObj);
                 });
 
@@ -1190,9 +1254,7 @@
                     showToast('Session Updated Successfully! ✏️');
                 } else {
                     state.sessions.push(newSessionData);
-                    if (!state.selectedSessionsForSettlement.includes(sessionId)) {
-                        state.selectedSessionsForSettlement.push(sessionId);
-                    }
+                    state.selectedSessionsForSettlement = [sessionId];
                     showToast('Shopping Session Saved Successfully! 🎉');
                 }
 
@@ -1396,15 +1458,19 @@
                                 ${s.name} <span class="text-sm text-slate-500 font-normal text-right">${s.date}</span>
                             </h4>
                             <ul class="text-sm mt-2 space-y-1.5">
-                                ${s.stores.map(st => `
-                                    <li class="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 px-2 py-1 rounded">
-                                        <span class="text-slate-700 dark:text-slate-300 font-medium">
-                                            ${st.name} 
-                                            <span class="text-[10px] bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300 px-1 rounded ml-1">Paid: ${st.paidBy}</span>
-                                        </span>
-                                        <span class="font-bold text-slate-800 dark:text-slate-200">₩${st.amount.toLocaleString()}</span>
-                                    </li>
-                                `).join('')}
+                                ` + s.stores.map(st => {
+                                    // Fix: No backslashes in nested template literal, just cleanly structure it
+                                    let displayName = st.type === 'personal' ? `${st.owner || st.paidBy} (Personal)` : st.name;
+                                    return `
+                                        <li class="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 px-2 py-1 rounded">
+                                            <span class="text-slate-700 dark:text-slate-300 font-medium">
+                                                ${displayName} 
+                                                <span class="text-[10px] bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300 px-1 rounded ml-1">Paid: ${st.paidBy}</span>
+                                            </span>
+                                            <span class="font-bold text-slate-800 dark:text-slate-200">₩${st.amount.toLocaleString()}</span>
+                                        </li>
+                                    `;
+                                }).join('') + `
                             </ul>
                         </div>
                     `;
@@ -1426,12 +1492,11 @@
                 target.classList.remove('p-0', 'bg-transparent');
                 target.style.background = state.theme === 'dark' ? '#0f172a' : '#f8fafc'; 
                 
-                // Increased width so names have plenty of room and don't squish/cut off
                 target.style.width = '480px';
                 target.style.maxWidth = '100%';
                 target.style.margin = '0 auto';
 
-                // Hide search bar, sort dropdown, action buttons
+                // Hide elements that have "hide-on-export" class (including Paid History)
                 const hiddenElements = target.querySelectorAll('.hide-on-export');
                 hiddenElements.forEach(el => el.style.display = 'none');
 
@@ -1479,7 +1544,7 @@
                     target.style.maxWidth = origMaxWidth;
                     target.style.margin = origMargin;
                     
-                    hiddenElements.forEach(el => el.style.display = ''); // restore
+                    hiddenElements.forEach(el => el.style.display = ''); // restore hidden elements
                 }
             };
 
@@ -1501,7 +1566,7 @@
             // Public API
             return {
                 init, navigate, toggleTheme, toggleLang, addMember, removeMember, 
-                addStoreForm, toggleStoreType, saveSession, filterSessions, markAsPaid, markAsUnpaid, copyPaymentDetails, showToast,
+                addStoreForm, toggleStoreType, saveSession, filterSessions, markAsPaid, undoPayment, copyPaymentDetails, showToast,
                 newSession, editSession, deleteSession, downloadSettlementImage,
                 addAmountField, toggleSessionCheckbox, selectAllSessionsToSettle, renderSettlements
             };
