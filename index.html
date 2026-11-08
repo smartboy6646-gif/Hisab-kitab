@@ -72,6 +72,9 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .dark ::-webkit-scrollbar-thumb { background: #475569; }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
         /* Animations */
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
@@ -296,7 +299,7 @@
                         <span class="hidden sm:inline" data-i18n="save_photo">Save Photo</span>
                     </button>
                 </div>
-                <p class="text-slate-500 dark:text-slate-400 mb-6" data-i18n="who_owes_whom">Optimized calculation of who owes whom.</p>
+                <p class="text-slate-500 dark:text-slate-400 mb-6" data-i18n="who_owes_whom">Optimized centralized calculation of who owes whom.</p>
 
                 <!-- Checkbox section to connect/select multiple sessions -->
                 <div class="glass-card rounded-2xl p-4 mb-6">
@@ -327,7 +330,32 @@
                         <!-- Filled by JS -->
                     </div>
 
-                    <div id="settlementsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Top Summary Grid -->
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex flex-col justify-center text-center">
+                            <span class="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-1">Total Pending</span>
+                            <span class="text-xl md:text-2xl font-black text-slate-800 dark:text-white" id="summaryTotal">₩0</span>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex flex-col justify-center text-center">
+                            <span class="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-1">Transactions</span>
+                            <span class="text-xl md:text-2xl font-black text-slate-800 dark:text-white" id="summaryCount">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Controls (Hidden on Export) -->
+                    <div class="flex gap-2 mb-4 hide-on-export">
+                        <div class="relative flex-1">
+                            <span class="material-symbols-rounded absolute left-3 top-2.5 text-slate-400 text-[20px]">search</span>
+                            <input type="text" id="settlementSearch" onkeyup="app.renderSettlements()" placeholder="Search name..." class="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:border-primary-500 transition-colors">
+                        </div>
+                        <select id="settlementSort" onchange="app.renderSettlements()" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-medium outline-none focus:border-primary-500 transition-colors">
+                            <option value="amount-desc">High to Low</option>
+                            <option value="amount-asc">Low to High</option>
+                        </select>
+                    </div>
+
+                    <!-- Compact Transaction Rows -->
+                    <div id="settlementsContainer" class="flex flex-col gap-2">
                         <!-- Populated via JS -->
                     </div>
 
@@ -385,7 +413,7 @@
     </nav>
 
     <!-- Toast Container -->
-    <div id="toastContainer" class="fixed top-20 right-4 z-50 flex flex-col gap-2"></div>
+    <div id="toastContainer" class="fixed top-20 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <!-- Application Logic -->
     <script>
@@ -435,11 +463,10 @@
                     save_session: "Save Session",
                     update_session: "Update Session",
                     shopping_history: "Shopping History",
-                    who_owes_whom: "Optimized calculation of who owes whom.",
+                    who_owes_whom: "Optimized centralized calculation of who owes whom.",
                     analytics_reports: "Analytics & Reports",
                     expenses_by_person: "Expenses by Person",
                     shared_vs_personal: "Shared vs Personal",
-                    pay: "Mark as Paid",
                     empty_sessions: "No sessions found. Start shopping!",
                     empty_settlements: "Check a session above to see calculations.",
                     save_photo: "Save Photo",
@@ -480,7 +507,6 @@
                     analytics_reports: "विश्लेषण र रिपोर्टहरू",
                     expenses_by_person: "व्यक्ति अनुसार खर्च",
                     shared_vs_personal: "साझा बनाम व्यक्तिगत",
-                    pay: "तिरेको चिन्ह लगाउनुहोस्",
                     empty_sessions: "कुनै सत्र फेला परेन। किनमेल सुरु गर्नुहोस्!",
                     empty_settlements: "हिसाब हेर्न माथिको बक्समा सेसन छान्नुहोस्।",
                     save_photo: "फोटो सेभ गर्नुहोस्",
@@ -590,7 +616,7 @@
                 showToast(state.lang === 'np' ? `'${name}' हटाइयो। 🗑️` : `Member '${name}' removed. 🗑️`);
             };
 
-            // Calculate debts based ONLY on selected session IDs
+            // Calculate ALL debts based on selected sessions and map their settled status
             const calculateDebts = (sessionIds = state.selectedSessionsForSettlement) => {
                 if (sessionIds.length === 0) return [];
 
@@ -640,15 +666,37 @@
                     }
                 }
 
-                return transactions.filter(t => !state.settledDebts.includes(`${t.from}-${t.to}-${Math.round(t.amount)}`));
+                // Instead of filtering them out completely, return mapped objects indicating if they are settled
+                return transactions.map(t => {
+                    let isSettled = state.settledDebts.includes(`${t.from}-${t.to}-${Math.round(t.amount)}`);
+                    return { ...t, isSettled };
+                });
             };
 
             const markAsPaid = (from, to, amount) => {
                 state.settledDebts.push(`${from}-${to}-${Math.round(amount)}`);
                 localStorage.setItem('hk_settled', JSON.stringify(state.settledDebts));
-                showToast(`Payment marked as Settled ✅`);
+                showToast(`Marked as Paid ✅`);
                 updateDashboard();
                 renderSettlements();
+            };
+
+            const markAsUnpaid = (from, to, amount) => {
+                const id = `${from}-${to}-${Math.round(amount)}`;
+                state.settledDebts = state.settledDebts.filter(d => d !== id);
+                localStorage.setItem('hk_settled', JSON.stringify(state.settledDebts));
+                showToast(`Marked as Pending 🔄`);
+                updateDashboard();
+                renderSettlements();
+            };
+            
+            const copyPaymentDetails = (from, to, amount) => {
+                const text = `${from} owes ${to} ₩${Math.round(amount).toLocaleString()} for Hisab Kitab settlement.`;
+                navigator.clipboard.writeText(text).then(() => {
+                    showToast('Payment details copied! 📋');
+                }).catch(err => {
+                    showToast('Failed to copy details', 'error');
+                });
             };
 
             const updateDashboard = () => {
@@ -694,15 +742,16 @@
                     });
                 }
 
-                // Dashboard Settlements (Only show if there are selected sessions)
+                // Dashboard Settlements (Only show pending from selected sessions)
                 const dashSettlements = document.getElementById('pendingSettlementsListDashboard');
                 dashSettlements.innerHTML = '';
-                let debts = calculateDebts(state.selectedSessionsForSettlement).slice(0,3);
+                let pendingDebts = calculateDebts(state.selectedSessionsForSettlement).filter(d => !d.isSettled);
+                let debtsToShow = pendingDebts.slice(0, 3);
                 
-                if(state.selectedSessionsForSettlement.length === 0 || debts.length === 0) {
+                if(state.selectedSessionsForSettlement.length === 0 || debtsToShow.length === 0) {
                     dashSettlements.innerHTML = `<p class="text-sm text-emerald-500 font-medium flex items-center gap-1"><span class="material-symbols-rounded text-base">check_circle</span> ${dict[state.lang].empty_settlements}</p>`;
                 } else {
-                    debts.forEach(d => {
+                    debtsToShow.forEach(d => {
                         dashSettlements.innerHTML += `
                             <div class="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
                                 <div class="flex items-center gap-2">
@@ -782,7 +831,6 @@
                 });
             };
 
-            // Render Checkboxes to select Sessions to connect
             const renderSettlementSessionCheckboxes = () => {
                 const container = document.getElementById('settlementSessionCheckboxes');
                 container.innerHTML = '';
@@ -823,58 +871,94 @@
                 updateDashboard();
             };
 
+            // NEW PREMIUM RENDER LOGIC FOR COMPACT ROW LAYOUT
             const renderSettlements = () => {
                 const container = document.getElementById('settlementsContainer');
+                const summaryTotal = document.getElementById('summaryTotal');
+                const summaryCount = document.getElementById('summaryCount');
+                const searchInput = document.getElementById('settlementSearch');
+                const sortSelect = document.getElementById('settlementSort');
+
                 container.innerHTML = '';
                 
                 if (state.selectedSessionsForSettlement.length === 0) {
-                    container.innerHTML = `<div class="col-span-1 md:col-span-2 text-center py-10 glass-card rounded-2xl"><span class="material-symbols-rounded text-5xl text-slate-300 mb-3 block">checklist</span><h3 class="text-xl font-bold mb-2 text-slate-600 dark:text-slate-300">No Sessions Selected</h3><p class="text-slate-500">${dict[state.lang].empty_settlements}</p></div>`;
+                    if(summaryTotal) summaryTotal.innerText = '₩0';
+                    if(summaryCount) summaryCount.innerText = '0';
+                    container.innerHTML = `<div class="text-center py-10 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm"><span class="material-symbols-rounded text-4xl text-slate-300 mb-2 block">checklist</span><h3 class="text-xl font-bold mb-2 text-slate-600 dark:text-slate-300">No Sessions Selected</h3><p class="text-slate-500">${dict[state.lang].empty_settlements}</p></div>`;
                     return;
                 }
 
-                const debts = calculateDebts(state.selectedSessionsForSettlement);
+                let allDebts = calculateDebts(state.selectedSessionsForSettlement);
 
-                if (debts.length === 0) {
-                    container.innerHTML = `<div class="col-span-1 md:col-span-2 text-center py-10 glass-card rounded-2xl"><span class="material-symbols-rounded text-5xl text-emerald-400 mb-3 block">verified</span><h3 class="text-xl font-bold mb-2">All Settled Up!</h3><p class="text-slate-500">No pending dues for selected sessions.</p></div>`;
+                // Update Summary based on Pending only
+                let pendingDebts = allDebts.filter(d => !d.isSettled);
+                let totalAmount = pendingDebts.reduce((sum, d) => sum + d.amount, 0);
+                
+                if(summaryTotal) summaryTotal.innerText = `₩${Math.round(totalAmount).toLocaleString()}`;
+                if(summaryCount) summaryCount.innerText = pendingDebts.length;
+
+                if (allDebts.length === 0) {
+                    container.innerHTML = `<div class="text-center py-10 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm"><span class="material-symbols-rounded text-4xl text-emerald-400 mb-2 block">verified</span><h3 class="text-xl font-bold mb-2">All Settled Up!</h3><p class="text-slate-500">No pending dues for selected sessions.</p></div>`;
                     return;
                 }
 
-                debts.forEach(d => {
+                // Apply UI Search Filter
+                let query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+                if (query) {
+                    allDebts = allDebts.filter(d => d.from.toLowerCase().includes(query) || d.to.toLowerCase().includes(query));
+                }
+
+                // Apply UI Sorting
+                let sort = sortSelect ? sortSelect.value : 'amount-desc';
+                if (sort === 'amount-desc') allDebts.sort((a,b) => b.amount - a.amount);
+                if (sort === 'amount-asc') allDebts.sort((a,b) => a.amount - b.amount);
+
+                if (allDebts.length === 0) {
+                    container.innerHTML = `<p class="text-sm text-slate-500 text-center py-6 font-medium">No matching transactions found.</p>`;
+                    return;
+                }
+
+                allDebts.forEach(d => {
+                    let isSettled = d.isSettled;
+                    let opacity = isSettled ? 'opacity-50 hover:opacity-100 transition-opacity' : '';
+                    let badge = isSettled 
+                        ? `<span class="bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Paid</span>` 
+                        : `<span class="bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Pending</span>`;
+                        
+                    let actionBtn = isSettled
+                        ? `<button onclick="app.markAsUnpaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors">Undo</button>`
+                        : `<button onclick="app.markAsPaid('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-[11px] font-bold text-white bg-slate-800 dark:bg-white dark:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-700 dark:hover:bg-slate-200 transition-colors shadow-sm">Mark Paid</button>`;
+
                     container.innerHTML += `
-                        <div class="glass-card p-5 rounded-2xl flex flex-col justify-between items-center text-center gap-4 border-t-4 border-t-primary-500">
-                            
-                            <!-- VERY CLEAR TEXT ABOUT WHO PAYS WHOM -->
-                            <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-xl p-3 mb-2">
-                                <div class="text-lg text-slate-800 dark:text-white font-black uppercase tracking-wide flex flex-wrap justify-center items-center gap-1">
-                                    <span class="text-rose-600 bg-rose-100 dark:bg-rose-900/30 px-2 py-1 rounded">${d.from}</span> 
-                                    <span class="text-xs text-slate-500 mx-1">WILL PAY</span> 
-                                    <span class="text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-1 rounded">${d.to}</span>
-                                </div>
-                            </div>
-
-                            <div class="flex items-center justify-center gap-4 w-full">
-                                <div class="flex flex-col items-center">
-                                    <div class="h-10 w-10 rounded-full bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center text-rose-600 font-bold mb-1">
-                                        ${d.from.charAt(0)}
-                                    </div>
+                        <div class="flex items-center justify-between p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm mb-1 ${opacity}">
+                            <div class="flex items-center gap-3 md:gap-4 overflow-hidden">
+                                <!-- Interlocking Avatars -->
+                                <div class="flex -space-x-2 shrink-0">
+                                    <div class="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xs font-bold ring-2 ring-white dark:ring-slate-800 z-10">${d.from.charAt(0)}</div>
+                                    <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold ring-2 ring-white dark:ring-slate-800 z-0">${d.to.charAt(0)}</div>
                                 </div>
                                 
-                                <div class="flex flex-col items-center flex-1">
-                                    <span class="font-black text-2xl mt-1 text-slate-800 dark:text-white">₩${Math.round(d.amount).toLocaleString()}</span>
-                                    <div class="w-full h-px bg-slate-300 dark:bg-slate-600 relative mt-2">
-                                        <span class="material-symbols-rounded absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-400 bg-[#f3f4f6] dark:bg-[#0f172a] px-1 text-sm">arrow_forward</span>
+                                <!-- Center Details -->
+                                <div class="flex flex-col min-w-0">
+                                    <div class="text-sm font-bold flex items-center gap-1">
+                                        <span class="text-rose-600 truncate max-w-[70px] sm:max-w-[120px]">${d.from}</span>
+                                        <span class="material-symbols-rounded text-[14px] text-slate-300 dark:text-slate-600 shrink-0">arrow_forward</span>
+                                        <span class="text-emerald-600 truncate max-w-[70px] sm:max-w-[120px]">${d.to}</span>
                                     </div>
-                                </div>
-
-                                <div class="flex flex-col items-center">
-                                    <div class="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 font-bold mb-1">
-                                        ${d.to.charAt(0)}
+                                    <div class="flex items-center gap-2 mt-1">
+                                        ${badge}
+                                        <button onclick="app.copyPaymentDetails('${d.from}', '${d.to}', ${d.amount})" class="hide-on-export text-slate-400 hover:text-primary-500 transition-colors flex items-center" title="Copy Details">
+                                            <span class="material-symbols-rounded text-[14px]">content_copy</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                            <button onclick="app.markAsPaid('${d.from}', '${d.to}', ${d.amount})" class="pay-btn w-full py-2 mt-2 bg-slate-800 dark:bg-white text-white dark:text-slate-800 rounded-xl font-bold hover:bg-slate-700 dark:hover:bg-slate-200 transition-colors shadow-lg">
-                                ${dict[state.lang].pay}
-                            </button>
+                            
+                            <!-- Right Amount & Action -->
+                            <div class="flex flex-col items-end gap-1.5 shrink-0 ml-2">
+                                <span class="font-black text-slate-800 dark:text-white text-base">₩${Math.round(d.amount).toLocaleString()}</span>
+                                ${actionBtn}
+                            </div>
                         </div>
                     `;
                 });
@@ -966,7 +1050,6 @@
                 if (storeData) {
                     const el = document.getElementById(storeId);
                     
-                    // We only populate store name if it was specifically set (we ignore if it was auto-generated for personal)
                     if (storeData.type === 'shared' || (storeData.type === 'personal' && !storeData.name.includes('(Personal)'))) {
                         el.querySelector('.store-name').value = storeData.name;
                     }
@@ -1024,7 +1107,7 @@
                     btnShared.classList.add(...inactiveClasses);
                     secPersonal.classList.remove('hidden');
                     secShared.classList.add('hidden');
-                    nameWrapper.classList.add('hidden'); // Hide Store Name for Personal
+                    nameWrapper.classList.add('hidden');
                 }
             };
 
@@ -1089,7 +1172,6 @@
                     let sName = el.querySelector('.store-name').value.trim();
                     let ownerName = el.querySelector('.store-owner').value;
                     
-                    // If Personal, automatically assign owner's name as the Store/Item name
                     if(sType === 'personal') {
                         sName = `${ownerName} (Personal)`;
                     }
@@ -1176,6 +1258,7 @@
 
                 state.currentView = viewId;
                 if(viewId === 'reports') renderCharts();
+                if(viewId === 'settlements') renderSettlements();
                 window.scrollTo(0,0);
             };
 
@@ -1213,6 +1296,7 @@
                 });
                 if (state.currentView === 'dashboard') updateDashboard();
                 renderSessionsList();
+                renderSettlements();
             };
 
             const showToast = (msg, type = 'success') => {
@@ -1315,15 +1399,10 @@
                 });
             };
 
-            // OFFICIAL SCREENSHOT EXPORT - OPTIMIZED FOR CLEARNESS & IDEAL SIZE
+            // EXPORT IMAGE (Hides UI controls, maintains compact size)
             const downloadSettlementImage = async () => {
                 if (state.selectedSessionsForSettlement.length === 0) {
                     return showToast(state.lang === 'np' ? 'कृपया फर्स्यौट गर्न सेसन छान्नुहोस्!' : 'Please select sessions first!', 'error');
-                }
-
-                const debts = calculateDebts(state.selectedSessionsForSettlement);
-                if (debts.length === 0) {
-                    return showToast(state.lang === 'np' ? 'सबै फर्स्यौट भइसकेको छ, फोटो निकाल्न आवश्यक छैन!' : 'All settled, nothing to export!', 'error');
                 }
 
                 const target = document.getElementById('settlementExportArea');
@@ -1333,11 +1412,9 @@
                 
                 showToast(state.lang === 'np' ? 'फोटो तयार हुँदैछ...' : 'Generating photo...', 'success');
 
-                // Prepare Date
                 const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
                 document.getElementById('exportDate').innerText = state.lang === 'np' ? `मिति: ${dateStr}` : `Date: ${dateStr}`;
                 
-                // Inject Session Details (What was bought)
                 const selectedSessionsData = state.sessions.filter(s => state.selectedSessionsForSettlement.includes(s.id));
                 const sessionHtml = selectedSessionsData.map(s => {
                     return `
@@ -1362,7 +1439,6 @@
                 
                 sessionDataBox.innerHTML = `<h3 class="text-sm font-black mb-4 uppercase tracking-widest text-primary-600 dark:text-primary-400 text-center">Session Expense Details</h3>${sessionHtml}`;
 
-                // Store original styles to restore later
                 const origWidth = target.style.width;
                 const origMaxWidth = target.style.maxWidth;
                 const origMargin = target.style.margin;
@@ -1377,19 +1453,17 @@
                 target.classList.remove('p-0', 'bg-transparent');
                 target.style.background = state.theme === 'dark' ? '#0f172a' : '#f8fafc'; 
                 
-                // Force a mobile-friendly width specifically for the screenshot so it looks clean everywhere
                 target.style.width = '420px';
                 target.style.maxWidth = '100%';
                 target.style.margin = '0 auto';
 
-                // Hide interactive buttons
-                const payBtns = target.querySelectorAll('.pay-btn');
-                payBtns.forEach(btn => btn.style.display = 'none');
+                // Hide search bar, sort dropdown, action buttons
+                const hiddenElements = target.querySelectorAll('.hide-on-export');
+                hiddenElements.forEach(el => el.style.display = 'none');
 
                 try {
                     await new Promise(resolve => setTimeout(resolve, 300));
-
-                    // Scale 2 is the sweet spot. It makes text completely crisp but prevents apps from over-compressing it.
+                    
                     const canvas = await html2canvas(target, {
                         scale: 2, 
                         useCORS: true,
@@ -1418,7 +1492,6 @@
                     console.error(err);
                     showToast('Error generating photo.', 'error');
                 } finally {
-                    // Restore original UI
                     header.classList.add('hidden');
                     header.classList.remove('flex');
                     sessionDataBox.classList.add('hidden');
@@ -1432,7 +1505,7 @@
                     target.style.maxWidth = origMaxWidth;
                     target.style.margin = origMargin;
                     
-                    payBtns.forEach(btn => btn.style.display = 'block');
+                    hiddenElements.forEach(el => el.style.display = ''); // restore
                 }
             };
 
@@ -1454,9 +1527,9 @@
             // Public API
             return {
                 init, navigate, toggleTheme, toggleLang, addMember, removeMember, 
-                addStoreForm, toggleStoreType, saveSession, filterSessions, markAsPaid, showToast,
+                addStoreForm, toggleStoreType, saveSession, filterSessions, markAsPaid, markAsUnpaid, copyPaymentDetails, showToast,
                 newSession, editSession, deleteSession, downloadSettlementImage,
-                addAmountField, toggleSessionCheckbox, selectAllSessionsToSettle
+                addAmountField, toggleSessionCheckbox, selectAllSessionsToSettle, renderSettlements
             };
         })();
 
